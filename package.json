@@ -1,0 +1,30 @@
+{
+  "name": "claude-zh-cn-for-windows",
+  "version": "1.0.6",
+  "description": "Claude Desktop 界面简体中文汉化（Windows）—— 仅第三方登录状态；官方账号登录模式从未开发",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "install-zh": "node scripts/install.mjs",
+    "restore": "node scripts/restore.mjs",
+    "detect": "node scripts/detect.mjs",
+    "verify": "node scripts/verify.mjs",
+    "test": "node tests/test-icu.mjs",
+    "lint": "node tests/lint.mjs",
+    "check": "node tests/lint.mjs && node tests/test-icu.mjs && node scripts/install.mjs check"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "claude",
+    "claude-desktop",
+    "i18n",
+    "localization",
+    "chinese",
+    "zh-cn",
+    "windows",
+    "icu-messageformat"
+  ],
+  "license": "MIT"
+}
