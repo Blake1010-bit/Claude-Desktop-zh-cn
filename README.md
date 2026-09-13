@@ -21,7 +21,6 @@
 - [风险声明](#风险声明)
 - [它做了什么、没做什么](#它做了什么没做什么)
 - [关于官方账号登录模式不可用的声明](#关于官方账号登录模式不可用的声明)
-- [为什么一定要管理员权限](#为什么一定要管理员权限)
 - [汉化覆盖率数据](#汉化覆盖率数据)
 - [遇到问题](#遇到问题)
 - [常见问题](#常见问题)
@@ -211,45 +210,6 @@ asar archive entry '<header>' (<期望值> vs <实际值>, 80743 bytes)
 
 ---
 
-## 为什么一定要管理员权限
-
-Claude 的 `resources` 目录是 MSIX 应用目录，属主是 `NT SERVICE\TrustedInstaller`，
-ACL 长这样：
-
-```
-BUILTIN\Users          ReadAndExecute
-BUILTIN\Administrators ReadAndExecute      <-- 管理员也只是"读"
-NT SERVICE\TrustedInstaller  FullControl
-```
-
-**关键在于：即使以管理员身份运行，也写不进去。** 管理员拿到的是 ReadAndExecute，
-不是 Modify。
-
-所以安装脚本必须做两步：
-
-1. `takeown` 取得目录所有权
-2. `icacls` 显式授予当前用户 `(OI)(CI)M`（含继承的 Modify）
-
-而且**必须对目录授权，不能只对文件授权**：Claude 重装后 `zh-CN.json` 是不存在的，
-需要父目录的「创建文件」权限才能新建。这是本项目早期最绕的一个坑 ——
-安装脚本对着一个不存在的文件授权，然后写文件时报 `EPERM`。
-
-改完权限后，脚本会在最后一步把 ACL 原样还原，并保留备份以防中途被关窗口。
-
-### 授权范围（实测数据）
-
-| 目录 | 文件数 | 授权方式 | 耗时 |
-|---|---|---|---|
-| `resources\ion-dist\i18n` | 21 | 递归 | ~0.1 秒 |
-| `resources`（根） | 28 | 递归 | 很快 |
-| `resources\ion-dist\assets\v1` | 3047 | **只对该目录本身，不递归** | 快 |
-
-最后一行是另一个坑：早期版本对整棵树（3277 个文件）递归 `takeown`，
-表现为窗口停在「取得写权限」十几分钟不动。语言白名单只是 `v1` 下的一个文件，
-单独对那个文件授权就够了。
-
----
-
 ## 汉化覆盖率数据
 
 | 指标 | 数值 |
@@ -293,19 +253,6 @@ node scripts/verify.mjs
 2. `%TEMP%\claude-zh-cn-install.log` 的内容
 3. 运行 `node scripts/detect.mjs` 的输出
 4. 你的 Claude Desktop 版本（设置 → 关于）
-
-### 关于「路径是不是写死作者电脑上」
-
-没有。项目里所有路径都是**运行时探测**的：
-
-| 需要知道的东西 | 怎么得到 |
-|---|---|
-| Claude 装在哪 | `Get-AppxPackage` 问系统，拿不到就扫 `WindowsApps`，再退回常见安装路径 |
-| Node 装在哪 | 先查 `PATH`，再试 `Program Files`、`LOCALAPPDATA`、scoop、nvm-windows、Volta 等常见位置 |
-| 用户名 | `$env:USERDOMAIN\$env:USERNAME` |
-
-唯一的例外是 Node 的候选列表里有一项 `D:\Node.js\node.exe`，
-那只是"顺便试一下"的位置之一，不存在就会跳过，**不会**因此失败。
 
 如果你遇到失败，多半是下面几种原因之一（按出现频率）：
 
@@ -400,37 +347,6 @@ node scripts/patch-whitelist.mjs
 ---
 
 ## 给开发者：技术细节
-
-### 只放语言文件是不够的：还要过语言白名单
-
-这是最容易被忽略、也是最关键的一步。
-
-Claude 前端有一份**硬编码的支持语言数组**，在 `ion-dist/assets/v1` 下的某个
-`shared-*.js` 里：
-
-```js
-var Kn = ["en-US","de-DE","fr-FR","ko-KR","ja-JP","es-419","es-ES",
-          "it-IT","hi-IN","pt-BR","id-ID"];
-function qn(e){ return e && Kn.includes(e) ? e : void 0 }   // 不在列表就丢弃
-```
-
-配套的判断函数是 `Kn.includes(e) ? e : void 0` —— **语言代码不在这份数组里就会被丢弃**，
-`config.json` 里的 `locale` 设成什么都没用，界面直接回退英文。
-
-官方没有发布简体中文，所以 `zh-CN` 天生不在这个数组里。**必须用补丁把它加进去**，
-只把 `zh-CN.json` 放进目录是无效的 —— 应用根本不会去读它。
-
-`scripts/patch-whitelist.mjs` 负责这一步：定位数组、备份原文件、插入 `"zh-CN"`、
-校验长度只增加 8 个字符（`,"zh-CN"`），并支持 `--check` / `--revert`。
-安装流程里它是独立一步（`[3/5]`），不是可选项。
-
-修完这个之后，三项条件必须同时成立界面才会变中文：
-
-| 条件 | 说明 |
-|---|---|
-| 白名单含 `zh-CN` | 否则语言被丢弃 |
-| `zh-CN.json` 存在 | 否则没内容可显示 |
-| `config.json` 的 `locale` = `zh-CN` | 否则不会选中这个语言 |
 
 ### 核心难点不是翻译，是校验
 
@@ -572,18 +488,6 @@ powershell -File tests/test-acl-restore.ps1   跑 ACL 还原幂等性测试
 ```
 
 任何脚本都支持 `--resources "<路径>"` 手动指定 Claude 位置。
-
-### 两个文件类型，两套相反的编码规则
-
-这条是踩出来的，弄反任何一条用户双击就报错：
-
-| 类型 | 编码 | 原因 |
-|---|---|---|
-| `.bat` | 纯 ASCII + CRLF + **无 BOM** | cmd 按 ANSI（GBK）读脚本，带 BOM 第一行会变乱码；用 LF 换行则双击一闪而过 |
-| `.ps1` | **UTF-8 + BOM** | PowerShell 5.1 读无 BOM 的 `.ps1` 按 GBK 解码，中文注释会让紧跟其后的反引号换行失效，报 `The string is missing the terminator` |
-
-`tests/lint.mjs` 就是把这些规则固化成可执行检查 —— 编辑工具保存 `.ps1` 时会
-悄悄丢掉 BOM，这个检查能立刻发现。
 
 ---
 
