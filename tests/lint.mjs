@@ -33,9 +33,25 @@ console.log('\n[1/3] 入口文件编码与换行')
  * .bat 必须：无 BOM + CRLF。
  *   cmd 按 ANSI（简体中文系统上是 GBK）读取批处理；带 BOM 时第一行会变成
  *   乱码命令，用 LF 换行时双击会一闪而过什么都不做。
- *   唯一允许出现非 ASCII 的地方是 `title` 行 —— chcp 65001 之后 cmd 已按
- *   UTF-8 读脚本，title 里的中文没问题；`echo` 里的中文会被切碎成
- *   "不是内部命令"，所以一律禁止。
+ *
+ * 关于中文字符（这条规则改过一次，原因值得记下来）
+ * ----------------------------------------------
+ *   旧规则是「只允许 title / rem / :: 行出现非 ASCII」，依据是
+ *   「echo 里的中文会被切碎成『不是内部命令』」。
+ *   那个依据是**错的**：只要在输出中文前先 `chcp 65001`，
+ *   echo 里的中文完全正常（用户界面截图可证）。
+ *
+ *   真正有风险的是**反过来**：`rem` 注释里的中文。
+ *   chcp 改变代码页后，某些 Windows 版本下 cmd 会**用新代码页重新读取
+ *   批处理文件**，注释行的字节被错误解码，其中一段被当成命令执行，
+ *   屏幕上出现一堆 "'xxx' is not recognized as an internal or external
+ *   command"。实测在用户机器上触发过，而开发机上不触发 ——
+ *   属于环境相关的不确定性，不值得赌。
+ *
+ *   现行规则：
+ *     * 中文**允许**出现在 echo / title 行（用户可见文案）
+ *     * 中文**禁止**出现在 rem / :: 行（解释性注释一律英文）
+ *     * 要写中文注释，写到 .mjs / .ps1 里 —— 那边 UTF-8 是安全的
  */
 const bats = readdirSync(ROOT).filter((n) => n.toLowerCase().endsWith('.bat'))
 if (bats.length === 0) bad('根目录下没有找到任何 .bat')
@@ -50,11 +66,14 @@ for (const name of bats) {
   const offenders = []
   text.split(/\r?\n/).forEach((line, i) => {
     if (![...line].some((c) => c.charCodeAt(0) > 0x7f)) return
-    if (/^\s*(rem|::|title)\b/i.test(line)) return
-    offenders.push(i + 1)
+    // echo / title 里允许中文；rem / :: 注释里禁止
+    if (/^\s*(rem|::)\b/i.test(line)) offenders.push(i + 1)
   })
   if (offenders.length > 0) {
-    bad(`${name}: 第 ${offenders.join(', ')} 行含中文，且不在 title/rem 里（cmd 会解析失败）`)
+    bad(
+      `${name}: 第 ${offenders.join(', ')} 行在 rem/:: 注释里用了中文 —— ` +
+        `chcp 后 cmd 可能按新代码页重读本文件、把注释当命令执行。注释请改用英文。`,
+    )
   }
   if (offenders.length === 0 && !(buf[0] === 0xef) && loneLf === 0) ok(name)
 }

@@ -21,7 +21,7 @@ if exist "%LOCALAPPDATA%\Volta\bin\node.exe" set "NODE_EXE=%LOCALAPPDATA%\Volta\
 if exist "%USERPROFILE%\.volta\bin\node.exe" set "NODE_EXE=%USERPROFILE%\.volta\bin\node.exe"
 if exist "%ProgramFiles%\Microsoft\nodejs\node.exe" set "NODE_EXE=%ProgramFiles%\Microsoft\nodejs\node.exe"
 
-rem Hand the discovered path to elevate.ps1 (see 一键安装中文.bat for why).
+rem Hand the discovered path to elevate.ps1 (see the install .bat for why).
 if defined NODE_EXE set "CLAUDE_ZH_CN_NODE=%NODE_EXE%"
 
 :have_node
@@ -34,16 +34,25 @@ if defined RES_HINT set "CLAUDE_RESOURCES_HINT=!RES_HINT!"
 if "%~1"=="admin" goto :admin
 if "%NEED_ADMIN%"=="0" goto :run
 
-rem ---- 还原一律走提权 ----
+rem ---- restore always goes through elevation ----
 rem
-rem 为什么不先问 need-admin：
-rem   need-admin 回答的是「现在还需要写入吗」。但还原做的事情里有两件
-rem   **无论当前可写与否都必须提权**：
-rem     * 把 Claude 目录的 ACL 还原回出厂状态（本来就只有管理员能做）
-rem     * 删除受保护目录里的语言文件（连提权后都要先 takeown）
-rem   实测过一次：need-admin 返回 0 时走 "无事可做" 直接退出，
-rem   而实际上 resources\zh-CN.json 还留着、只是当时删不掉。
-rem   结果就是用户点了还原却什么都没发生 —— 看起来像"双击没反应"。
+rem Why we do NOT ask need-admin first:
+rem   need-admin answers "is a write still needed right now?". But restoring
+rem   always requires administrator rights for two things, regardless of
+rem   whether the folder happens to be writable at this moment:
+rem     * restoring the ACL of Claude's folder back to its factory state
+rem       (only an administrator can do this at all)
+rem     * deleting language files inside the protected folder
+rem       (even elevated, we must takeown first)
+rem   Measured once: need-admin returned 0, we took the "nothing to do"
+rem   branch and exited, while resources\zh-CN.json was in fact still there
+rem   and simply could not be deleted at that moment. The user clicked
+rem   restore and nothing happened - it looked like the file was broken.
+rem
+rem NOTE: keep this file's comments in ASCII. Chinese text in rem lines is
+rem fragile: chcp changes the code page and cmd may re-read the batch file
+rem with a different decoder, turning comments into bogus commands in some
+rem Windows builds. Chinese belongs in echo lines (user-visible) only.
 goto :run_elevate
 
 :nothing_to_do
