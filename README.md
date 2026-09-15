@@ -276,11 +276,45 @@ node scripts/detect.mjs --resources "你的资源目录路径"
 
 ### 安装后界面没变
 
-两种可能，按顺序排查。
+**先看这一条：Claude 是不是刚自动更新过？**
 
-**第一种：没完全退出重启。** 最常见。托盘图标右键 → 退出，然后重开。
+这是最常见的原因。Claude 更新时会**换掉整个版本目录**，
+里面的中文语言文件、白名单补丁、以及工具留下的备份**全部会消失**，
+`config.json` 里的界面语言也会被重置回 `en-US`。
 
-**第二种：语言白名单没打上补丁。** 如果重启后仍是英文，跑一下：
+用 `node scripts/detect.mjs` 看一眼资源目录的版本号即可确认：
+
+```
+✔ 找到 Claude 资源目录
+  C:\Program Files\WindowsApps\Claude_1.52386.6.0_x64__pzs8sxrjxfjjc\app\resources
+```
+
+如果这里的版本号和你上次安装时不一样，那就是更新过了。**重新装一次即可**：
+
+```
+一键安装中文.bat          （需要管理员，重新写语言文件 + 白名单）
+node scripts/set-locale.mjs   （不需要管理员，把界面语言设回中文）
+```
+
+> 为什么不把 `set-locale` 合并进安装脚本？因为它**不需要管理员权限**，
+> 而安装脚本每次都要过 UAC。分开之后，日常"界面又变英文了"这种情况
+> 只需几秒钟，不用再走一遍权限流程。
+
+**如果不是更新导致的**，再按下面排查。
+
+**第一种：没完全退出重启。** 托盘图标右键 → 退出，然后重开。
+只看窗口右上角的 × 是不够的，Claude 会留在托盘里继续跑。
+
+**第二种：界面语言那一处被重置了。** 跑一下：
+
+```
+node scripts/set-locale.mjs --check
+```
+
+- 两个目录都是 `zh-CN ✔` → 这处没问题，继续往下看
+- 显示 `← 需要改成 zh-CN` → 直接 `node scripts/set-locale.mjs` 修好
+
+**第三种：语言白名单没打上补丁。**
 
 ```
 node scripts/patch-whitelist.mjs --check
@@ -449,13 +483,14 @@ Claude-zh-cn-for-Windows/
 ├── lib/
 │   ├── icu-check.mjs         ICU 结构化校验器（核心）
 │   ├── whitelist.mjs         快速定位语言白名单文件
-│   └── paths.mjs             Claude 安装位置探测
+│   └── paths.mjs             Claude 安装位置探测（多级动态探测，不写死版本号）
 │
 ├── scripts/
 │   ├── install.mjs           安装
 │   ├── restore.mjs           还原
 │   ├── detect.mjs            检查状态
 │   ├── verify.mjs            安装后复验
+│   ├── set-locale.mjs        设界面语言（不需要管理员；Claude 更新后用得上）
 │   ├── need-admin.mjs        判断是否需要提权（真的写一个临时文件试）
 │   ├── patch-whitelist.mjs   把 zh-CN 注册进语言白名单（关键步骤）
 │   ├── elevate-run.ps1       提权入口：先试计划任务，再回退 UAC
@@ -479,6 +514,10 @@ node scripts/patch-whitelist.mjs     补语言白名单
 node scripts/patch-whitelist.mjs --revert  还原语言白名单
 node scripts/install.mjs             安装
 node scripts/install.mjs --dry-run   只检查不写入
+node scripts/set-locale.mjs          把界面语言设成中文（不需要管理员）
+node scripts/set-locale.mjs --check  只看界面语言状态
+node scripts/set-locale.mjs en-US    设回英文
+node scripts/set-locale.mjs --restore 从备份还原
 node scripts/restore.mjs --list      列出备份
 node scripts/restore.mjs             还原最近一次
 node scripts/verify.mjs              复验安装结果
@@ -488,6 +527,19 @@ powershell -File tests/test-acl-restore.ps1   跑 ACL 还原幂等性测试
 ```
 
 任何脚本都支持 `--resources "<路径>"` 手动指定 Claude 位置。
+
+### 界面变中文要同时满足三处
+
+少任何一处都会失败，而且**症状都一样：界面还是英文**。
+
+| # | 条件 | 不满足时 |
+|---|---|---|
+| 1 | 语言白名单含 `zh-CN` | 前端直接丢弃这个语言 |
+| 2 | `resources` 里有 `zh-CN.json` | 没内容可显示 |
+| 3 | `config.json` 的 `locale` = `zh-CN` | 不会选中这个语言 |
+
+前两处由 `一键安装中文.bat` 负责，第三处由 `scripts/set-locale.mjs` 负责。
+用 `node scripts/detect.mjs` 可以一次看到三处的状态。
 
 ---
 
