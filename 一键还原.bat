@@ -34,15 +34,22 @@ if defined RES_HINT set "CLAUDE_RESOURCES_HINT=!RES_HINT!"
 if "%~1"=="admin" goto :admin
 if "%NEED_ADMIN%"=="0" goto :run
 
-rem ---- decide whether we need administrator rights ----
-"!NODE_EXE!" "%~dp0scripts\need-admin.mjs" 2>nul
-set "NEED=%ERRORLEVEL%"
-if "%NEED%"=="0" goto :nothing_to_do
-if "%NEED%"=="2" goto :run_elevate
-goto :run
+rem ---- 还原一律走提权 ----
+rem
+rem 为什么不先问 need-admin：
+rem   need-admin 回答的是「现在还需要写入吗」。但还原做的事情里有两件
+rem   **无论当前可写与否都必须提权**：
+rem     * 把 Claude 目录的 ACL 还原回出厂状态（本来就只有管理员能做）
+rem     * 删除受保护目录里的语言文件（连提权后都要先 takeown）
+rem   实测过一次：need-admin 返回 0 时走 "无事可做" 直接退出，
+rem   而实际上 resources\zh-CN.json 还留着、只是当时删不掉。
+rem   结果就是用户点了还原却什么都没发生 —— 看起来像"双击没反应"。
+goto :run_elevate
 
 :nothing_to_do
+echo.
 echo Nothing to restore - the Chinese language files are not installed.
+echo 没有需要还原的内容 —— 中文语言文件本来就不在。
 echo.
 pause
 exit /b 0
